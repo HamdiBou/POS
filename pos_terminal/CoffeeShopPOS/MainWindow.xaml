@@ -1,0 +1,155 @@
+<Window x:Class="CoffeeShopPOS.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="Coffee Shop POS" Height="768" Width="1024" WindowStyle="None" WindowState="Maximized">
+    <Grid Background="#F5F5F5">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Border Grid.Row="0" Background="#3E2723" Padding="20,10">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Stretch">
+                <TextBlock Text="COFFEE SHOP POS" Foreground="White" FontSize="24" FontWeight="Bold" VerticalAlignment="Center"/>
+                <Separator Width="20" Visibility="Hidden"/>
+                <TextBlock x:Name="EmployeeInfo" Foreground="White" FontSize="18" VerticalAlignment="Center"/>
+                <Button x:Name="LogoutButton" Content="Logout" HorizontalAlignment="Right" Click="LogoutButton_Click" Margin="20,0,0,0"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Content Area -->
+        <Grid Grid.Row="1">
+            <!-- Login Overlay -->
+            <Grid x:Name="LoginGrid" Background="#AA000000" Panel.ZIndex="100">
+                <Border Background="White" Width="400" Height="500" CornerRadius="10" VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <StackPanel Margin="40">
+                        <TextBlock Text="Enter PIN" FontSize="32" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,30"/>
+                        <PasswordBox x:Name="PinInput" FontSize="48" HorizontalContentAlignment="Center" Margin="0,0,0,20"/>
+                        <UniformGrid Columns="3" Rows="4">
+                            <Button Content="1" Style="{StaticResource PinButtonStyle}" Click="PinKey_Click"/>
+                            <Button Content="2" Style="{StaticResource PinButtonStyle}" Click="PinKey_Click"/>
+                            <Button Content="3" Style="{StaticResource PinButtonStyle}" Click="PinKey_Click"/>
+                            <Button Content="4" Style="{StaticResource PinButtonStyle}" Click="PinKey_Click"/>
+                            <Button Content="5" Style="{StaticResource PinButtonStyle}" Click="PinKey_Click"/>
+                            <Button Content="6" Style="{StaticResource PinButtonStyle}" Click="PinKey_Click"/>
+                            <Button Content="7" Style="{StaticResource PinButtonStyle}" Click="PinKey_Click"/>
+                            <Button Content="8" Style="{StaticResource PinButtonStyle}" Click="PinKey_Click"/>
+                            <Button Content="9" Style="{StaticResource PinButtonStyle}" Click="PinKey_Click"/>
+                            <Button Content="Clear" Style="{StaticResource PinButtonStyle}" Click="PinClear_Click"/>
+                            <Button Content="0" Style="{StaticResource PinButtonStyle}" Click="PinKey_Click"/>
+                            <Button Content="OK" Style="{StaticResource PinButtonStyle}" Click="PinOk_Click" Background="#4CAF50" Foreground="White"/>
+                        </UniformGrid>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!-- Main POS Interface (Initially Hidden) -->
+            <Grid x:Name="MainPosGrid" Visibility="Collapsed">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="350"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Left: Article Grid -->
+                <Grid Grid.Column="0" Margin="10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                         <Button Content="1kg Beans" Padding="15,10" Background="#795548" Foreground="White" Click="BeansButton_Click"/>
+                    </StackPanel>
+
+                    <ScrollViewer Grid.Row="1">
+                        <ItemsControl x:Name="ArticleItemsControl">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <UniformGrid Columns="4"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button Margin="5" Height="100" Background="White" Click="ArticleButton_Click" Tag="{Binding}">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="16" TextAlignment="Center" TextWrapping="Wrap"/>
+                                            <TextBlock Text="{Binding Price, StringFormat={}{0:C}}" FontSize="14" TextAlignment="Center" Foreground="#666"/>
+                                        </StackPanel>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+
+                <!-- Right: Cart & Actions -->
+                <Border Grid.Column="1" Background="White" BorderBrush="#DDD" BorderThickness="1,0,0,0">
+                    <Grid Margin="15">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Text="Order" FontSize="24" FontWeight="Bold" Margin="0,0,0,10"/>
+
+                        <ListBox Grid.Row="1" x:Name="CartListBox" BorderThickness="0">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Width="300" Margin="0,5">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{Binding Name}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Quantity, StringFormat=x{0}}" Margin="10,0"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Subtotal, StringFormat={}{0:C}}" FontWeight="Bold"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+
+                        <StackPanel Grid.Row="2" Margin="0,10">
+                            <Separator/>
+                            <Grid Margin="0,10">
+                                <TextBlock Text="Total" FontSize="28" FontWeight="Bold"/>
+                                <TextBlock x:Name="TotalText" Text="$0.00" FontSize="28" FontWeight="Bold" HorizontalAlignment="Right" Foreground="#2E7D32"/>
+                            </Grid>
+                        </StackPanel>
+
+                        <UniformGrid Grid.Row="3" Columns="2" Rows="2" Height="120">
+                            <Button Content="Clear Cart" Margin="5" Click="ClearCart_Click"/>
+                            <Button Content="Close Shift" Margin="5" Click="CloseShift_Click"/>
+                            <Button Grid.ColumnSpan="2" Content="PAY" Margin="5" FontSize="24" Background="#4CAF50" Foreground="White" Click="Pay_Click"/>
+                        </UniformGrid>
+                    </Grid>
+                </Border>
+            </Grid>
+
+            <!-- Shift Open/Close Dialogs -->
+            <Grid x:Name="ShiftDialogGrid" Visibility="Collapsed" Background="#AA000000" Panel.ZIndex="150">
+                 <Border Background="White" Width="400" Height="300" CornerRadius="10" VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <StackPanel Margin="40">
+                        <TextBlock x:Name="ShiftDialogTitle" Text="Opening Float" FontSize="24" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,20"/>
+                        <TextBox x:Name="ShiftCashInput" FontSize="32" HorizontalContentAlignment="Center" Margin="0,0,0,30"/>
+                        <Button x:Name="ShiftConfirmButton" Content="Confirm" Padding="15" FontSize="20" Background="#4CAF50" Foreground="White" Click="ShiftConfirmButton_Click"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Grid>
+    </Grid>
+
+    <Window.Resources>
+        <Style x:Key="PinButtonStyle" TargetType="Button">
+            <Setter Property="FontSize" Value="24"/>
+            <Setter Property="Margin" Value="5"/>
+            <Setter Property="Height" Value="60"/>
+        </Style>
+    </Window.Resources>
+</Window>

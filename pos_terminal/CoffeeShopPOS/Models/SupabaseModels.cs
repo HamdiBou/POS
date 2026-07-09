@@ -1,0 +1,141 @@
+using System;
+using Postgrest.Attributes;
+using Postgrest.Models;
+
+namespace CoffeeShopPOS.Models
+{
+    [Table("employees")]
+    public class Employee : BaseModel
+    {
+        [PrimaryKey("id", false)]
+        public Guid Id { get; set; }
+
+        [Column("name")]
+        public string Name { get; set; }
+
+        [Column("role")]
+        public string Role { get; set; }
+
+        [Column("active")]
+        public bool Active { get; set; }
+    }
+
+    [Table("shifts")]
+    public class Shift : BaseModel
+    {
+        [PrimaryKey("id", false)]
+        public Guid Id { get; set; }
+
+        [Column("employee_id")]
+        public Guid EmployeeId { get; set; }
+
+        [Column("opened_at")]
+        public DateTime OpenedAt { get; set; }
+
+        [Column("closed_at")]
+        public DateTime? ClosedAt { get; set; }
+
+        [Column("opening_cash")]
+        public decimal OpeningCash { get; set; }
+
+        [Column("closing_cash")]
+        public decimal? ClosingCash { get; set; }
+    }
+
+    [Table("articles")]
+    public class Article : BaseModel
+    {
+        [PrimaryKey("id", false)]
+        public Guid Id { get; set; }
+
+        [Column("name")]
+        public string Name { get; set; }
+
+        [Column("price")]
+        public decimal Price { get; set; }
+
+        [Column("category")]
+        public string Category { get; set; }
+
+        [Column("requires_coffee")]
+        public bool RequiresCoffee { get; set; }
+
+        [Column("active")]
+        public bool Active { get; set; }
+    }
+
+    [Table("orders")]
+    public class Order : BaseModel
+    {
+        [PrimaryKey("id", false)]
+        public Guid Id { get; set; }
+
+        [Column("shift_id")]
+        public Guid? ShiftId { get; set; }
+
+        [Column("employee_id")]
+        public Guid EmployeeId { get; set; }
+
+        [Column("source")]
+        public string Source { get; set; }
+
+        [Column("created_at")]
+        public DateTime CreatedAt { get; set; }
+
+        [Column("total")]
+        public decimal Total { get; set; }
+
+        [Column("status")]
+        public string Status { get; set; }
+    }
+
+    [Table("order_items")]
+    public class OrderItem : BaseModel
+    {
+        [PrimaryKey("id", false)]
+        public Guid Id { get; set; }
+
+        [Column("order_id")]
+        public Guid OrderId { get; set; }
+
+        [Column("article_id")]
+        public Guid? ArticleId { get; set; }
+
+        [Column("article_name")]
+        public string ArticleName { get; set; }
+
+        [Column("unit_price")]
+        public decimal UnitPrice { get; set; }
+
+        [Column("quantity")]
+        public int Quantity { get; set; }
+    }
+
+    [Table("bean_bags")]
+    public class BeanBag : BaseModel
+    {
+        [PrimaryKey("id", false)]
+        public Guid Id { get; set; }
+
+        [Column("employee_id")]
+        public Guid EmployeeId { get; set; }
+
+        [Column("shift_id")]
+        public Guid ShiftId { get; set; }
+
+        [Column("started_at")]
+        public DateTime StartedAt { get; set; }
+
+        [Column("ended_at")]
+        public DateTime? EndedAt { get; set; }
+
+        [Column("expected_yield")]
+        public int ExpectedYield { get; set; }
+
+        [Column("coffee_count")]
+        public int CoffeeCount { get; set; }
+
+        [Column("flagged")]
+        public bool Flagged { get; set; }
+    }
+}
