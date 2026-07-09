@@ -38,7 +38,7 @@ CREATE TABLE articles (
 CREATE TABLE orders (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     shift_id UUID REFERENCES shifts(id),
-    employee_id UUID NOT NULL REFERENCES employees(id),
+    employee_id UUID REFERENCES employees(id), -- Nullable for client_app orders
     source order_source NOT NULL DEFAULT 'pos',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     total DECIMAL(12, 2) NOT NULL,

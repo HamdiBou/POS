@@ -3,6 +3,8 @@ using System.Threading.Tasks;
 using Supabase;
 using CoffeeShopPOS.Models;
 using System.Collections.Generic;
+using System.Linq;
+using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
 using System.Net.Http;
 using System.Text;
@@ -50,6 +52,9 @@ namespace CoffeeShopPOS.Services
                 }
             });
             await channel.Subscribe();
+
+            // Attempt to sync any offline orders on startup
+            _ = SyncOfflineOrdersAsync();
         }
 
         public Action<Order> OnOrderReceived;
@@ -126,19 +131,65 @@ namespace CoffeeShopPOS.Services
             order.EmployeeId = CurrentEmployee.Id;
             order.CreatedAt = DateTime.UtcNow;
 
-            var orderResponse = await _client.From<Order>().Insert(order);
-            var savedOrder = orderResponse.Model;
-
-            foreach (var item in items)
+            try
             {
-                item.OrderId = savedOrder.Id;
-                await _client.From<OrderItem>().Insert(item);
+                var orderResponse = await _client.From<Order>().Insert(order);
+                var savedOrder = orderResponse.Model;
 
-                // Update bean bag count if article requires coffee
-                if (ActiveBeanBag != null)
+                foreach (var item in items)
                 {
-                    // In a real app, we'd fetch the article to check requires_coffee if not already in memory
-                    // For this demo, assume we know if it requires coffee
+                    item.OrderId = savedOrder.Id;
+                    await _client.From<OrderItem>().Insert(item);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Local Resilience: Save to SQLite if offline
+                Console.WriteLine("Supabase insert failed, saving to local queue: " + ex.Message);
+                await SaveOrderToLocalQueueAsync(order, items);
+            }
+        }
+
+        private async Task SaveOrderToLocalQueueAsync(Order order, List<OrderItem> items)
+        {
+            using var db = new CoffeeShopPOS.Data.LocalDbContext();
+            db.Orders.Add(order);
+            await db.SaveChangesAsync();
+
+            foreach(var item in items)
+            {
+                item.OrderId = order.Id;
+                db.OrderItems.Add(item);
+            }
+            await db.SaveChangesAsync();
+        }
+
+        public async Task SyncOfflineOrdersAsync()
+        {
+            using var db = new CoffeeShopPOS.Data.LocalDbContext();
+            var offlineOrders = await db.Orders.ToListAsync();
+
+            foreach(var order in offlineOrders)
+            {
+                try
+                {
+                    var items = await db.OrderItems.Where(i => i.OrderId == order.Id).ToListAsync();
+                    var orderResponse = await _client.From<Order>().Insert(order);
+                    var savedOrder = orderResponse.Model;
+
+                    foreach(var item in items)
+                    {
+                        item.OrderId = savedOrder.Id;
+                        await _client.From<OrderItem>().Insert(item);
+                        db.OrderItems.Remove(item);
+                    }
+                    db.Orders.Remove(order);
+                    await db.SaveChangesAsync();
+                }
+                catch (Exception)
+                {
+                    // Still offline, stop sync for now
+                    break;
                 }
             }
         }

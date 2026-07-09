@@ -147,17 +147,6 @@ namespace CoffeeShopPOS
 
             await _supabase.CreateOrderAsync(order, items);
 
-            // Update bean bag if needed
-            if (_supabase.ActiveBeanBag != null)
-            {
-                int coffeeCount = _cart.Where(i => i.RequiresCoffee).Sum(i => i.Quantity);
-                if (coffeeCount > 0)
-                {
-                    _supabase.ActiveBeanBag.CoffeeCount += coffeeCount;
-                    // In real app, update in DB
-                }
-            }
-
             _cart.Clear();
             UpdateTotal();
             MessageBox.Show("Order Completed!");
