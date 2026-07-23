@@ -1,13 +1,17 @@
 using System;
+using System.IO;
+using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
-using Supabase;
-using CoffeeShopPOS.Models;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
+using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
-using System.Net.Http;
-using System.Text;
+using Supabase;
+using CoffeeShopPOS.Models;
+using CoffeeShopPOS.Data;
 
 namespace CoffeeShopPOS.Services
 {
@@ -25,7 +29,14 @@ namespace CoffeeShopPOS.Services
 
         public Employee CurrentEmployee { get; private set; }
         public Shift CurrentShift { get; private set; }
-        public BeanBag ActiveBeanBag { get; private set; }
+        public LocalBeanBag ActiveBeanBag { get; private set; }
+
+        public Action OnArticlesChanged;
+        public Action<Order> OnOrderReceived;
+        public Action OnBrandingChanged;
+
+        private Timer _pollTimer;
+        private bool _isSyncing = false;
 
         public async Task InitializeAsync()
         {
@@ -38,26 +49,203 @@ namespace CoffeeShopPOS.Services
             _client = new Client(_supabaseUrl, _supabaseKey, options);
             await _client.InitializeAsync();
 
-            // Realtime subscription for client_app orders
-            await _client.Realtime.ConnectAsync();
-            var channel = _client.Realtime.Channel("public:orders");
-            channel.AddPostgresChangeHandler(Supabase.Realtime.PostgresChanges.PostgresChangesOptions.ListenType.Inserts, (sender, args) => {
-                if (args.Payload?.Data != null)
-                {
-                    var order = JsonConvert.DeserializeObject<Order>(args.Payload.Data.ToString());
-                    if (order != null && order.Source == "client_app")
-                    {
-                        OnOrderReceived?.Invoke(order);
-                    }
-                }
-            });
-            await channel.Subscribe();
+            // Attempt to load secure session on startup
+            bool loaded = await LoadSavedSessionAsync();
 
-            // Attempt to sync any offline orders on startup
-            _ = SyncOfflineOrdersAsync();
+            // Setup Realtime subscriptions
+            await SetupRealtimeAsync();
+
+            // Apply cached branding immediately on startup
+            ApplyCachedBranding();
+
+            // Start background polling (every 15 seconds)
+            StartPolling();
+
+            // Run offline sync and initial branding fetch in background
+            _ = Task.Run(async () =>
+            {
+                await SyncDataAsync();
+                await SyncBrandingAsync();
+            });
         }
 
-        public Action<Order> OnOrderReceived;
+        private async Task SetupRealtimeAsync()
+        {
+            try
+            {
+                await _client.Realtime.ConnectAsync();
+
+                // 1. Subscribe to client_app orders
+                var ordersChannel = _client.Realtime.Channel("public:orders");
+                ordersChannel.AddPostgresChangeHandler(Supabase.Realtime.PostgresChanges.PostgresChangesOptions.ListenType.Inserts, (sender, args) => {
+                    if (args.Payload?.Data != null)
+                    {
+                        var order = JsonConvert.DeserializeObject<Order>(args.Payload.Data.ToString());
+                        if (order != null && order.Source == "client_app")
+                        {
+                            OnOrderReceived?.Invoke(order);
+                        }
+                    }
+                });
+                await ordersChannel.Subscribe();
+
+                // 2. Subscribe to articles (INSERT, UPDATE, DELETE)
+                var articlesChannel = _client.Realtime.Channel("public:articles");
+                articlesChannel.AddPostgresChangeHandler(Supabase.Realtime.PostgresChanges.PostgresChangesOptions.ListenType.All, (sender, args) => {
+                    _ = HandleArticleRealtimeChangeAsync(args);
+                });
+                await articlesChannel.Subscribe();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Failed to setup Realtime subscriptions: " + ex.Message);
+            }
+        }
+
+        private async Task HandleArticleRealtimeChangeAsync(dynamic args)
+        {
+            try
+            {
+                if (args.Payload?.Data == null) return;
+                var article = JsonConvert.DeserializeObject<Article>(args.Payload.Data.ToString());
+                if (article == null) return;
+
+                using var db = new LocalDbContext();
+                var existing = await db.Articles.FindAsync(article.Id);
+
+                // Check event type from dynamic payload or string comparison
+                string eventName = args.Event.ToString();
+                if (eventName == "Deletes" || eventName == "DELETE" || eventName.Contains("Delete"))
+                {
+                    if (existing != null)
+                    {
+                        db.Articles.Remove(existing);
+                    }
+                }
+                else
+                {
+                    if (existing == null)
+                    {
+                        db.Articles.Add(new LocalArticle
+                        {
+                            Id = article.Id,
+                            Name = article.Name,
+                            Price = article.Price,
+                            Category = article.Category,
+                            RequiresCoffee = article.RequiresCoffee,
+                            Active = article.Active
+                        });
+                    }
+                    else
+                    {
+                        existing.Name = article.Name;
+                        existing.Price = article.Price;
+                        existing.Category = article.Category;
+                        existing.RequiresCoffee = article.RequiresCoffee;
+                        existing.Active = article.Active;
+                    }
+                }
+
+                await db.SaveChangesAsync();
+                OnArticlesChanged?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Failed to process Realtime article change: " + ex.Message);
+            }
+        }
+
+        private void StartPolling()
+        {
+            _pollTimer = new Timer(async _ =>
+            {
+                await PollProductChangesAsync();
+                await SyncCostsIfAdminAsync();
+                await SyncDataAsync();
+                await SyncBrandingAsync();
+            }, null, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15));
+        }
+
+        public async Task PollProductChangesAsync()
+        {
+            try
+            {
+                var supabaseArticles = await GetArticlesFromSupabaseAsync();
+                if (supabaseArticles == null || supabaseArticles.Count == 0) return;
+
+                using var db = new LocalDbContext();
+                var localArticles = await db.Articles.ToListAsync();
+
+                foreach (var sa in supabaseArticles)
+                {
+                    var la = localArticles.FirstOrDefault(x => x.Id == sa.Id);
+                    if (la == null)
+                    {
+                        db.Articles.Add(new LocalArticle
+                        {
+                            Id = sa.Id,
+                            Name = sa.Name,
+                            Price = sa.Price,
+                            Category = sa.Category,
+                            RequiresCoffee = sa.RequiresCoffee,
+                            Active = sa.Active
+                        });
+                    }
+                    else
+                    {
+                        la.Name = sa.Name;
+                        la.Price = sa.Price;
+                        la.Category = sa.Category;
+                        la.RequiresCoffee = sa.RequiresCoffee;
+                        la.Active = sa.Active;
+                    }
+                }
+
+                // If local article is active but not returned by Supabase, mark it inactive
+                var fetchedIds = supabaseArticles.Select(sa => sa.Id).ToHashSet();
+                foreach (var la in localArticles)
+                {
+                    if (!fetchedIds.Contains(la.Id) && la.Active)
+                    {
+                        la.Active = false;
+                    }
+                }
+
+                await db.SaveChangesAsync();
+                OnArticlesChanged?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Polling products failed: " + ex.Message);
+            }
+        }
+
+        public async Task<List<Article>> GetArticlesFromSupabaseAsync()
+        {
+            try
+            {
+                var response = await _client.From<Article>().Where(x => x.Active).Get();
+                return response.Models;
+            }
+            catch
+            {
+                return new List<Article>();
+            }
+        }
+
+        public async Task<List<LocalArticle>> GetArticlesAsync()
+        {
+            try
+            {
+                using var db = new LocalDbContext();
+                return await db.Articles.Where(a => a.Active).ToListAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Failed to get local articles: " + ex.Message);
+                return new List<LocalArticle>();
+            }
+        }
 
         public async Task<bool> LoginWithPinAsync(string pin)
         {
@@ -75,35 +263,204 @@ namespace CoffeeShopPOS.Services
                     // Set the session token to enable RLS
                     _client.Auth.SetSession(result.Token, "", true);
 
-                    CurrentEmployee = new Employee {
+                    CurrentEmployee = new Employee
+                    {
                         Id = result.User.Id,
                         Name = result.User.Name,
                         Role = result.User.Role
                     };
+
+                    // Securely save JWT
+                    SaveSessionToken(result.Token);
+
+                    // Handle Cost Cache & Brand color sync instantly on login
+                    _ = SyncCostsIfAdminAsync();
 
                     return true;
                 }
             }
             catch (Exception ex)
             {
-                // Log error
                 Console.WriteLine(ex.Message);
             }
 
             return false;
         }
 
+        public async Task LogoutAsync()
+        {
+            CurrentEmployee = null;
+            CurrentShift = null;
+            ActiveBeanBag = null;
+
+            // Delete securely stored session token
+            DeleteSavedSession();
+
+            // Completely wipe cost table on logout/worker switch
+            using (var db = new LocalDbContext())
+            {
+                db.ArticleCosts.RemoveRange(db.ArticleCosts);
+                await db.SaveChangesAsync();
+            }
+
+            OnArticlesChanged?.Invoke();
+        }
+
+        // DPAPI Secure Store for Session JWT
+        private void SaveSessionToken(string token)
+        {
+            try
+            {
+                var data = Encoding.UTF8.GetBytes(token);
+                byte[] protectedData;
+                if (System.OperatingSystem.IsWindows())
+                {
+                    protectedData = ProtectedData.Protect(data, null, DataProtectionScope.CurrentUser);
+                }
+                else
+                {
+                    protectedData = data; // Non-Windows fallback for test/dev
+                }
+                var sessionPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "session.dat");
+                File.WriteAllBytes(sessionPath, protectedData);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Failed to securely save session token: " + ex.Message);
+            }
+        }
+
+        private async Task<bool> LoadSavedSessionAsync()
+        {
+            try
+            {
+                var sessionPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "session.dat");
+                if (!File.Exists(sessionPath)) return false;
+
+                var encryptedData = File.ReadAllBytes(sessionPath);
+                byte[] decryptedData;
+                if (System.OperatingSystem.IsWindows())
+                {
+                    decryptedData = ProtectedData.Unprotect(encryptedData, null, DataProtectionScope.CurrentUser);
+                }
+                else
+                {
+                    decryptedData = encryptedData;
+                }
+
+                var token = Encoding.UTF8.GetString(decryptedData);
+                if (string.IsNullOrEmpty(token)) return false;
+
+                // Decode token to check expiration
+                var parts = token.Split('.');
+                if (parts.Length < 2) return false;
+
+                var payloadJson = Encoding.UTF8.GetString(DecodeBase64Url(parts[1]));
+                var payload = JsonConvert.DeserializeObject<JwtPayload>(payloadJson);
+                if (payload == null || payload.Exp < DateTimeOffset.UtcNow.ToUnixTimeSeconds())
+                {
+                    File.Delete(sessionPath);
+                    return false;
+                }
+
+                // Set session token
+                _client.Auth.SetSession(token, "", true);
+
+                CurrentEmployee = new Employee
+                {
+                    Id = Guid.Parse(payload.Sub),
+                    Role = payload.Role,
+                    Name = payload.Role == "admin" ? "Admin" : "Employee"
+                };
+
+                // Try fetching actual name in background if online
+                _ = FetchEmployeeDetailsAsync(CurrentEmployee.Id);
+
+                // Instantly sync costs if they are admin
+                _ = SyncCostsIfAdminAsync();
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Failed to load secure session: " + ex.Message);
+                return false;
+            }
+        }
+
+        private void DeleteSavedSession()
+        {
+            try
+            {
+                var sessionPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "session.dat");
+                if (File.Exists(sessionPath))
+                {
+                    File.Delete(sessionPath);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Failed to delete saved session: " + ex.Message);
+            }
+        }
+
+        private byte[] DecodeBase64Url(string base64Url)
+        {
+            var padded = base64Url.Replace('-', '+').Replace('_', '/');
+            switch (padded.Length % 4)
+            {
+                case 2: padded += "=="; break;
+                case 3: padded += "="; break;
+            }
+            return Convert.FromBase64String(padded);
+        }
+
+        private async Task FetchEmployeeDetailsAsync(Guid employeeId)
+        {
+            try
+            {
+                var response = await _client.From<Employee>().Where(e => e.Id == employeeId).Get();
+                var emp = response.Model;
+                if (emp != null)
+                {
+                    CurrentEmployee = emp;
+                }
+            }
+            catch
+            {
+                // Silently ignore if offline
+            }
+        }
+
+        // Local-First Shifts & Bean Bags & Orders
         public async Task<Shift> OpenShiftAsync(decimal openingCash)
         {
-            var shift = new Shift
+            var shiftId = Guid.NewGuid();
+            var localShift = new LocalShift
             {
+                Id = shiftId,
                 EmployeeId = CurrentEmployee.Id,
                 OpeningCash = openingCash,
-                OpenedAt = DateTime.UtcNow
+                OpenedAt = DateTime.UtcNow,
+                IsSynced = false
             };
 
-            var response = await _client.From<Shift>().Insert(shift);
-            CurrentShift = response.Model;
+            using (var db = new LocalDbContext())
+            {
+                db.Shifts.Add(localShift);
+                await db.SaveChangesAsync();
+            }
+
+            CurrentShift = new Shift
+            {
+                Id = shiftId,
+                EmployeeId = localShift.EmployeeId,
+                OpeningCash = localShift.OpeningCash,
+                OpenedAt = localShift.OpenedAt
+            };
+
+            _ = SyncDataAsync();
+
             return CurrentShift;
         }
 
@@ -111,111 +468,369 @@ namespace CoffeeShopPOS.Services
         {
             if (CurrentShift == null) return;
 
-            CurrentShift.ClosingCash = closingCash;
-            CurrentShift.ClosedAt = DateTime.UtcNow;
+            using (var db = new LocalDbContext())
+            {
+                var localShift = await db.Shifts.FindAsync(CurrentShift.Id);
+                if (localShift != null)
+                {
+                    localShift.ClosingCash = closingCash;
+                    localShift.ClosedAt = DateTime.UtcNow;
+                    localShift.IsSynced = false;
+                    await db.SaveChangesAsync();
+                }
+            }
 
-            await _client.From<Shift>().Update(CurrentShift);
             CurrentShift = null;
             ActiveBeanBag = null;
-        }
 
-        public async Task<List<Article>> GetArticlesAsync()
-        {
-            var response = await _client.From<Article>().Where(x => x.Active).Get();
-            return response.Models;
+            _ = SyncDataAsync();
         }
 
         public async Task CreateOrderAsync(Order order, List<OrderItem> items)
         {
+            order.Id = Guid.NewGuid();
             order.ShiftId = CurrentShift?.Id;
             order.EmployeeId = CurrentEmployee.Id;
             order.CreatedAt = DateTime.UtcNow;
 
-            try
+            using (var db = new LocalDbContext())
             {
-                var orderResponse = await _client.From<Order>().Insert(order);
-                var savedOrder = orderResponse.Model;
+                var localOrder = new LocalOrder
+                {
+                    Id = order.Id,
+                    ShiftId = order.ShiftId,
+                    EmployeeId = order.EmployeeId,
+                    Source = order.Source ?? "pos",
+                    CreatedAt = order.CreatedAt,
+                    Total = order.Total,
+                    Status = order.Status ?? "completed",
+                    IsSynced = false
+                };
+                db.Orders.Add(localOrder);
 
                 foreach (var item in items)
                 {
-                    item.OrderId = savedOrder.Id;
-                    await _client.From<OrderItem>().Insert(item);
-                }
-            }
-            catch (Exception ex)
-            {
-                // Local Resilience: Save to SQLite if offline
-                Console.WriteLine("Supabase insert failed, saving to local queue: " + ex.Message);
-                await SaveOrderToLocalQueueAsync(order, items);
-            }
-        }
-
-        private async Task SaveOrderToLocalQueueAsync(Order order, List<OrderItem> items)
-        {
-            using var db = new CoffeeShopPOS.Data.LocalDbContext();
-            db.Orders.Add(order);
-            await db.SaveChangesAsync();
-
-            foreach(var item in items)
-            {
-                item.OrderId = order.Id;
-                db.OrderItems.Add(item);
-            }
-            await db.SaveChangesAsync();
-        }
-
-        public async Task SyncOfflineOrdersAsync()
-        {
-            using var db = new CoffeeShopPOS.Data.LocalDbContext();
-            var offlineOrders = await db.Orders.ToListAsync();
-
-            foreach(var order in offlineOrders)
-            {
-                try
-                {
-                    var items = await db.OrderItems.Where(i => i.OrderId == order.Id).ToListAsync();
-                    var orderResponse = await _client.From<Order>().Insert(order);
-                    var savedOrder = orderResponse.Model;
-
-                    foreach(var item in items)
+                    item.Id = Guid.NewGuid();
+                    var localItem = new LocalOrderItem
                     {
-                        item.OrderId = savedOrder.Id;
-                        await _client.From<OrderItem>().Insert(item);
-                        db.OrderItems.Remove(item);
-                    }
-                    db.Orders.Remove(order);
-                    await db.SaveChangesAsync();
+                        Id = item.Id,
+                        OrderId = order.Id,
+                        ArticleId = item.ArticleId,
+                        ArticleName = item.ArticleName,
+                        UnitPrice = item.UnitPrice,
+                        Quantity = item.Quantity
+                    };
+                    db.OrderItems.Add(localItem);
                 }
-                catch (Exception)
-                {
-                    // Still offline, stop sync for now
-                    break;
-                }
+
+                await db.SaveChangesAsync();
             }
+
+            _ = SyncDataAsync();
         }
 
         public async Task StartNewBeanBagAsync()
         {
             if (CurrentShift == null) return;
 
-            // Close previous bag if any
-            if (ActiveBeanBag != null)
+            var newBag = new LocalBeanBag
             {
-                ActiveBeanBag.EndedAt = DateTime.UtcNow;
-                await _client.From<BeanBag>().Update(ActiveBeanBag);
-            }
-
-            var newBag = new BeanBag
-            {
+                Id = Guid.NewGuid(),
                 EmployeeId = CurrentEmployee.Id,
                 ShiftId = CurrentShift.Id,
                 StartedAt = DateTime.UtcNow,
-                ExpectedYield = 50, // Default or fetch from settings
-                CoffeeCount = 0
+                ExpectedYield = 50, // default
+                CoffeeCount = 0,
+                Flagged = false,
+                IsSynced = false
             };
 
-            var response = await _client.From<BeanBag>().Insert(newBag);
-            ActiveBeanBag = response.Model;
+            using (var db = new LocalDbContext())
+            {
+                db.BeanBags.Add(newBag);
+                await db.SaveChangesAsync();
+            }
+
+            ActiveBeanBag = newBag;
+
+            _ = SyncDataAsync();
+        }
+
+        // Background Offline Sync Services
+        public async Task SyncDataAsync()
+        {
+            if (_isSyncing) return;
+            _isSyncing = true;
+
+            try
+            {
+                using var db = new LocalDbContext();
+
+                // 1. Sync Shifts
+                var unsyncedShifts = await db.Shifts.Where(s => !s.IsSynced).ToListAsync();
+                foreach (var ls in unsyncedShifts)
+                {
+                    var s = new Shift
+                    {
+                        Id = ls.Id,
+                        EmployeeId = ls.EmployeeId,
+                        OpenedAt = ls.OpenedAt,
+                        ClosedAt = ls.ClosedAt,
+                        OpeningCash = ls.OpeningCash,
+                        ClosingCash = ls.ClosingCash
+                    };
+                    await _client.From<Shift>().Upsert(s);
+                    ls.IsSynced = true;
+                    await db.SaveChangesAsync();
+                }
+
+                // 2. Sync Orders & OrderItems
+                var unsyncedOrders = await db.Orders.Where(o => !o.IsSynced).ToListAsync();
+                foreach (var lo in unsyncedOrders)
+                {
+                    var localItems = await db.OrderItems.Where(oi => oi.OrderId == lo.Id).ToListAsync();
+
+                    var o = new Order
+                    {
+                        Id = lo.Id,
+                        ShiftId = lo.ShiftId,
+                        EmployeeId = lo.EmployeeId,
+                        Source = lo.Source,
+                        CreatedAt = lo.CreatedAt,
+                        Total = lo.Total,
+                        Status = lo.Status
+                    };
+
+                    await _client.From<Order>().Upsert(o);
+
+                    foreach (var li in localItems)
+                    {
+                        var oi = new OrderItem
+                        {
+                            Id = li.Id,
+                            OrderId = li.OrderId,
+                            ArticleId = li.ArticleId,
+                            ArticleName = li.ArticleName,
+                            UnitPrice = li.UnitPrice,
+                            Quantity = li.Quantity
+                        };
+                        await _client.From<OrderItem>().Upsert(oi);
+                    }
+
+                    lo.IsSynced = true;
+                    await db.SaveChangesAsync();
+                }
+
+                // 3. Sync BeanBags
+                var unsyncedBeanBags = await db.BeanBags.Where(bb => !bb.IsSynced).ToListAsync();
+                foreach (var lbb in unsyncedBeanBags)
+                {
+                    var bb = new BeanBag
+                    {
+                        Id = lbb.Id,
+                        EmployeeId = lbb.EmployeeId,
+                        ShiftId = lbb.ShiftId,
+                        StartedAt = lbb.StartedAt,
+                        EndedAt = lbb.EndedAt,
+                        ExpectedYield = lbb.ExpectedYield,
+                        CoffeeCount = lbb.CoffeeCount,
+                        Flagged = lbb.Flagged
+                    };
+                    await _client.From<BeanBag>().Upsert(bb);
+                    lbb.IsSynced = true;
+                    await db.SaveChangesAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Sync offline data failed: " + ex.Message);
+            }
+            finally
+            {
+                _isSyncing = false;
+            }
+        }
+
+        // Cost data isolation (Admin-Session only)
+        public async Task SyncCostsIfAdminAsync()
+        {
+            if (CurrentEmployee?.Role != "admin")
+            {
+                // Ensure NO cost data exists in SQLite
+                using var db = new LocalDbContext();
+                var costData = await db.ArticleCosts.ToListAsync();
+                if (costData.Count > 0)
+                {
+                    db.ArticleCosts.RemoveRange(costData);
+                    await db.SaveChangesAsync();
+                    OnArticlesChanged?.Invoke();
+                }
+                return;
+            }
+
+            try
+            {
+                var response = await _client.From<ArticleCost>().Get();
+                var supabaseCosts = response.Models;
+
+                using var db = new LocalDbContext();
+                var localCosts = await db.ArticleCosts.ToListAsync();
+
+                foreach (var sc in supabaseCosts)
+                {
+                    var lc = localCosts.FirstOrDefault(x => x.ArticleId == sc.ArticleId);
+                    if (lc == null)
+                    {
+                        db.ArticleCosts.Add(new LocalArticleCost
+                        {
+                            ArticleId = sc.ArticleId,
+                            UnitCost = sc.UnitCost
+                        });
+                    }
+                    else
+                    {
+                        lc.UnitCost = sc.UnitCost;
+                    }
+                }
+
+                // Remove deleted cost items
+                var fetchedIds = supabaseCosts.Select(sc => sc.ArticleId).ToHashSet();
+                foreach (var lc in localCosts)
+                {
+                    if (!fetchedIds.Contains(lc.ArticleId))
+                    {
+                        db.ArticleCosts.Remove(lc);
+                    }
+                }
+
+                await db.SaveChangesAsync();
+                OnArticlesChanged?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Sync costs failed: " + ex.Message);
+            }
+        }
+
+        // Logo-Based Theming & Branding Sync
+        public async Task SyncBrandingAsync()
+        {
+            try
+            {
+                // 1. Pull settings for brand_color
+                var response = await _client.From<Setting>().Get();
+                var settings = response.Models;
+
+                string hexColor = null;
+
+                // Look for branding settings
+                var brandColorSetting = settings.FirstOrDefault(s => s.Key == "brand_color" || s.Key == "branding");
+                if (brandColorSetting != null && brandColorSetting.Value != null)
+                {
+                    try
+                    {
+                        var parsed = JsonConvert.DeserializeObject<dynamic>(brandColorSetting.Value);
+                        if (parsed != null)
+                        {
+                            if (parsed is string s)
+                            {
+                                hexColor = s;
+                            }
+                            else if (parsed.brand_color != null)
+                            {
+                                hexColor = (string)parsed.brand_color;
+                            }
+                            else if (parsed.color != null)
+                            {
+                                hexColor = (string)parsed.color;
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        hexColor = brandColorSetting.Value.Trim('"');
+                    }
+                }
+
+                using var db = new LocalDbContext();
+                if (!string.IsNullOrEmpty(hexColor))
+                {
+                    var localColor = await db.Settings.FindAsync("brand_color");
+                    if (localColor == null)
+                    {
+                        db.Settings.Add(new LocalSetting { Key = "brand_color", Value = hexColor });
+                    }
+                    else
+                    {
+                        localColor.Value = hexColor;
+                    }
+                }
+
+                await db.SaveChangesAsync();
+
+                // 2. Download branding/logo.png
+                var url = $"{_supabaseUrl}/storage/v1/object/public/branding/logo.png";
+                using var httpClient = new HttpClient();
+                var logoResponse = await httpClient.GetAsync(url);
+                if (logoResponse.IsSuccessStatusCode)
+                {
+                    var bytes = await logoResponse.Content.ReadAsByteArrayAsync();
+                    var localLogoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logo.png");
+                    await File.WriteAllBytesAsync(localLogoPath, bytes);
+                }
+
+                OnBrandingChanged?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Sync branding failed: " + ex.Message);
+            }
+        }
+
+        public void ApplyCachedBranding()
+        {
+            try
+            {
+                using var db = new LocalDbContext();
+                var colorSetting = db.Settings.Find("brand_color");
+                if (colorSetting != null && !string.IsNullOrEmpty(colorSetting.Value))
+                {
+                    ThemeHelper.ApplyBrandColor(colorSetting.Value);
+                }
+                else
+                {
+                    ThemeHelper.ApplyDefaultTheme();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Failed to apply cached branding: " + ex.Message);
+                ThemeHelper.ApplyDefaultTheme();
+            }
+        }
+
+        // Fire-and-forget system closed notification
+        public void SendSystemClosedNotification(Guid employeeId)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var notification = new Notification
+                    {
+                        Id = Guid.NewGuid(),
+                        EmployeeId = employeeId,
+                        Type = "system_closed",
+                        Message = $"System closed by employee {employeeId}",
+                        CreatedAt = DateTime.UtcNow
+                    };
+                    await _client.From<Notification>().Insert(notification);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("Failed to send system_closed notification: " + ex.Message);
+                }
+            });
         }
 
         private class LoginResponse
@@ -229,6 +844,18 @@ namespace CoffeeShopPOS.Services
             public Guid Id { get; set; }
             public string Name { get; set; }
             public string Role { get; set; }
+        }
+
+        private class JwtPayload
+        {
+            [JsonProperty("sub")]
+            public string Sub { get; set; }
+
+            [JsonProperty("role")]
+            public string Role { get; set; }
+
+            [JsonProperty("exp")]
+            public long Exp { get; set; }
         }
     }
 }
