@@ -138,4 +138,53 @@ namespace CoffeeShopPOS.Models
         [Column("flagged")]
         public bool Flagged { get; set; }
     }
+
+    [Table("article_costs")]
+    public class ArticleCost : BaseModel
+    {
+        [PrimaryKey("article_id", false)]
+        public Guid ArticleId { get; set; }
+
+        [Column("unit_cost")]
+        public decimal UnitCost { get; set; }
+    }
+
+    [Table("order_item_costs")]
+    public class OrderItemCost : BaseModel
+    {
+        [PrimaryKey("order_item_id", false)]
+        public Guid OrderItemId { get; set; }
+
+        [Column("unit_cost")]
+        public decimal UnitCost { get; set; }
+    }
+
+    [Table("settings")]
+    public class Setting : BaseModel
+    {
+        [PrimaryKey("key", false)]
+        public string Key { get; set; }
+
+        [Column("value")]
+        public string Value { get; set; }
+    }
+
+    [Table("notifications")]
+    public class Notification : BaseModel
+    {
+        [PrimaryKey("id", false)]
+        public Guid Id { get; set; }
+
+        [Column("employee_id")]
+        public Guid? EmployeeId { get; set; }
+
+        [Column("type")]
+        public string Type { get; set; }
+
+        [Column("message")]
+        public string Message { get; set; }
+
+        [Column("created_at")]
+        public DateTime CreatedAt { get; set; }
+    }
 }

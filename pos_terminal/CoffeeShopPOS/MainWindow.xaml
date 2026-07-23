@@ -12,13 +12,19 @@
         </Grid.RowDefinitions>
 
         <!-- Header -->
-        <Border Grid.Row="0" Background="#3E2723" Padding="20,10">
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Stretch">
-                <TextBlock Text="COFFEE SHOP POS" Foreground="White" FontSize="24" FontWeight="Bold" VerticalAlignment="Center"/>
-                <Separator Width="20" Visibility="Hidden"/>
-                <TextBlock x:Name="EmployeeInfo" Foreground="White" FontSize="18" VerticalAlignment="Center"/>
-                <Button x:Name="LogoutButton" Content="Logout" HorizontalAlignment="Right" Click="LogoutButton_Click" Margin="20,0,0,0"/>
-            </StackPanel>
+        <Border Grid.Row="0" Background="{DynamicResource HeaderBackgroundBrush}" Padding="20,10">
+            <Grid HorizontalAlignment="Stretch">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                    <Image x:Name="LogoImage" Height="40" Margin="0,0,20,0" VerticalAlignment="Center" Visibility="Collapsed"/>
+                    <TextBlock Text="COFFEE SHOP POS" Foreground="White" FontSize="24" FontWeight="Bold" VerticalAlignment="Center"/>
+                    <Separator Width="20" Visibility="Hidden"/>
+                    <TextBlock x:Name="EmployeeInfo" Foreground="White" FontSize="18" VerticalAlignment="Center"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button x:Name="AdminPanelButton" Content="Admin Panel" Click="AdminPanelButton_Click" Visibility="Collapsed" Margin="0,0,10,0" Padding="15,5" FontSize="16" FontWeight="SemiBold"/>
+                    <Button x:Name="LogoutButton" Content="Logout" HorizontalAlignment="Right" Click="LogoutButton_Click" Padding="15,5" FontSize="16" FontWeight="SemiBold"/>
+                </StackPanel>
+            </Grid>
         </Border>
 
         <!-- Content Area -->
@@ -47,6 +53,29 @@
                 </Border>
             </Grid>
 
+            <!-- Admin Panel Overlay (Initially Hidden) -->
+            <Grid x:Name="AdminPanelGrid" Visibility="Collapsed" Background="#F5F5F5" Panel.ZIndex="90">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <Border Background="#EEE" Padding="20,10">
+                    <Grid>
+                        <TextBlock Text="ADMIN PANEL - ARTICLE MARGINS" FontSize="24" FontWeight="Bold" Foreground="#3E2723" VerticalAlignment="Center"/>
+                        <Button Content="Back to POS" HorizontalAlignment="Right" Click="CloseAdminPanel_Click" Padding="15,5" FontSize="16" Style="{StaticResource POSButtonStyle}"/>
+                    </Grid>
+                </Border>
+                <DataGrid Grid.Row="1" x:Name="AdminMarginsGrid" AutoGenerateColumns="False" IsReadOnly="True" Margin="20" FontSize="16" AlternatingRowBackground="#FFF" Background="White" RowHeaderWidth="0">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Article Name" Binding="{Binding Name}" Width="*"/>
+                        <DataGridTextColumn Header="Category" Binding="{Binding Category}" Width="200"/>
+                        <DataGridTextColumn Header="Price" Binding="{Binding Price, StringFormat={}{0:C}}" Width="150"/>
+                        <DataGridTextColumn Header="Unit Cost" Binding="{Binding UnitCost, StringFormat={}{0:C}}" Width="150"/>
+                        <DataGridTextColumn Header="Profit Margin" Binding="{Binding Profit, StringFormat={}{0:C}}" Width="180"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </Grid>
+
             <!-- Main POS Interface (Initially Hidden) -->
             <Grid x:Name="MainPosGrid" Visibility="Collapsed">
                 <Grid.ColumnDefinitions>
@@ -54,7 +83,7 @@
                     <ColumnDefinition Width="350"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- Left: Article Grid -->
+                <!-- Left: Article Grid grouped by Category -->
                 <Grid Grid.Column="0" Margin="10">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -62,24 +91,39 @@
                     </Grid.RowDefinitions>
 
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                         <Button Content="1kg Beans" Padding="15,10" Background="#795548" Foreground="White" Click="BeansButton_Click"/>
+                         <Button Content="1kg Beans" Padding="20,12" Background="{DynamicResource AccentBrush}" Foreground="White" Click="BeansButton_Click" FontSize="16" FontWeight="SemiBold"/>
                     </StackPanel>
 
-                    <ScrollViewer Grid.Row="1">
-                        <ItemsControl x:Name="ArticleItemsControl">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <UniformGrid Columns="4"/>
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <ItemsControl x:Name="CategoriesItemsControl">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Button Margin="5" Height="100" Background="White" Click="ArticleButton_Click" Tag="{Binding}">
-                                        <StackPanel>
-                                            <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="16" TextAlignment="Center" TextWrapping="Wrap"/>
-                                            <TextBlock Text="{Binding Price, StringFormat={}{0:C}}" FontSize="14" TextAlignment="Center" Foreground="#666"/>
-                                        </StackPanel>
-                                    </Button>
+                                    <StackPanel Margin="0,15">
+                                        <!-- Category Name Header -->
+                                        <TextBlock Text="{Binding CategoryName}" FontSize="22" FontWeight="Bold" Foreground="#3E2723" Margin="5,0,0,10"/>
+                                        <!-- Articles Wrapped Grid -->
+                                        <ItemsControl ItemsSource="{Binding Articles}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <WrapPanel Orientation="Horizontal"/>
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Button Margin="5" Width="180" Height="100" Background="White" Click="ArticleButton_Click" Tag="{Binding}" Style="{StaticResource POSButtonStyle}">
+                                                        <Grid Margin="5">
+                                                            <Grid.RowDefinitions>
+                                                                <RowDefinition Height="*"/>
+                                                                <RowDefinition Height="Auto"/>
+                                                            </Grid.RowDefinitions>
+                                                            <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="15" TextAlignment="Center" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                                                            <TextBlock Grid.Row="1" Text="{Binding Price, StringFormat={}{0:C}}" FontSize="13" TextAlignment="Center" Foreground="#2E7D32" FontWeight="SemiBold"/>
+                                                        </Grid>
+                                                    </Button>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
@@ -107,9 +151,9 @@
                                             <ColumnDefinition Width="Auto"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Text="{Binding Name}"/>
-                                        <TextBlock Grid.Column="1" Text="{Binding Quantity, StringFormat=x{0}}" Margin="10,0"/>
-                                        <TextBlock Grid.Column="2" Text="{Binding Subtotal, StringFormat={}{0:C}}" FontWeight="Bold"/>
+                                        <TextBlock Text="{Binding Name}" FontSize="14"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Quantity, StringFormat=x{0}}" Margin="10,0" FontSize="14"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Subtotal, StringFormat={}{0:C}}" FontWeight="Bold" FontSize="14"/>
                                     </Grid>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
@@ -124,9 +168,9 @@
                         </StackPanel>
 
                         <UniformGrid Grid.Row="3" Columns="2" Rows="2" Height="120">
-                            <Button Content="Clear Cart" Margin="5" Click="ClearCart_Click"/>
-                            <Button Content="Close Shift" Margin="5" Click="CloseShift_Click"/>
-                            <Button Grid.ColumnSpan="2" Content="PAY" Margin="5" FontSize="24" Background="#4CAF50" Foreground="White" Click="Pay_Click"/>
+                            <Button Content="Clear Cart" Margin="5" Click="ClearCart_Click" Style="{StaticResource POSButtonStyle}"/>
+                            <Button Content="Close Shift" Margin="5" Click="CloseShift_Click" Style="{StaticResource POSButtonStyle}"/>
+                            <Button Grid.ColumnSpan="2" Content="PAY" Margin="5" FontSize="24" Background="#4CAF50" Foreground="White" Click="Pay_Click" Style="{StaticResource POSButtonStyle}"/>
                         </UniformGrid>
                     </Grid>
                 </Border>
@@ -138,7 +182,7 @@
                     <StackPanel Margin="40">
                         <TextBlock x:Name="ShiftDialogTitle" Text="Opening Float" FontSize="24" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,20"/>
                         <TextBox x:Name="ShiftCashInput" FontSize="32" HorizontalContentAlignment="Center" Margin="0,0,0,30"/>
-                        <Button x:Name="ShiftConfirmButton" Content="Confirm" Padding="15" FontSize="20" Background="#4CAF50" Foreground="White" Click="ShiftConfirmButton_Click"/>
+                        <Button x:Name="ShiftConfirmButton" Content="Confirm" Padding="15" FontSize="20" Background="#4CAF50" Foreground="White" Click="ShiftConfirmButton_Click" Style="{StaticResource POSButtonStyle}"/>
                     </StackPanel>
                 </Border>
             </Grid>
@@ -150,6 +194,12 @@
             <Setter Property="FontSize" Value="24"/>
             <Setter Property="Margin" Value="5"/>
             <Setter Property="Height" Value="60"/>
+        </Style>
+        <Style x:Key="POSButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="BorderBrush" Value="#CCC"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10"/>
         </Style>
     </Window.Resources>
 </Window>

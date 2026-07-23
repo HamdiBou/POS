@@ -1,11 +1,14 @@
 using System;
+using System.IO;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media.Imaging;
 using CoffeeShopPOS.Models;
 using CoffeeShopPOS.Services;
+using CoffeeShopPOS.Data;
 
 namespace CoffeeShopPOS
 {
@@ -24,14 +27,30 @@ namespace CoffeeShopPOS
 
         private async void InitializeSupabase()
         {
-            try {
+            try
+            {
+                // Hook events before initializing so that cached values trigger immediately
+                _supabase.OnArticlesChanged += () => Dispatcher.Invoke(LoadArticles);
+                _supabase.OnBrandingChanged += () => Dispatcher.Invoke(UpdateBranding);
+
                 await _supabase.InitializeAsync();
-                _supabase.OnOrderReceived += (order) => {
-                    Dispatcher.Invoke(() => {
+
+                _supabase.OnOrderReceived += (order) =>
+                {
+                    Dispatcher.Invoke(() =>
+                    {
                         MessageBox.Show($"New Order from Client App! Total: {order.Total:C}", "Incoming Order");
                     });
                 };
-            } catch (Exception ex) {
+
+                // Check if session was restored automatically
+                if (_supabase.CurrentEmployee != null)
+                {
+                    OnLoginSuccess();
+                }
+            }
+            catch (Exception ex)
+            {
                 MessageBox.Show("Failed to initialize Supabase: " + ex.Message);
             }
         }
@@ -39,7 +58,10 @@ namespace CoffeeShopPOS
         private void PinKey_Click(object sender, RoutedEventArgs e)
         {
             var btn = sender as Button;
-            PinInput.Password += btn.Content.ToString();
+            if (btn != null)
+            {
+                PinInput.Password += btn.Content.ToString();
+            }
         }
 
         private void PinClear_Click(object sender, RoutedEventArgs e)
@@ -55,20 +77,40 @@ namespace CoffeeShopPOS
             if (success)
             {
                 PinInput.Password = "";
-                LoginGrid.Visibility = Visibility.Collapsed;
-                EmployeeInfo.Text = $"Logged in as: {_supabase.CurrentEmployee.Name}";
-
-                // Show Open Shift dialog
-                _isClosingShift = false;
-                ShiftDialogTitle.Text = "Opening Float";
-                ShiftCashInput.Text = "50.00"; // Mock default
-                ShiftDialogGrid.Visibility = Visibility.Visible;
+                OnLoginSuccess();
             }
             else
             {
                 MessageBox.Show("Invalid PIN");
                 PinInput.Password = "";
             }
+        }
+
+        private void OnLoginSuccess()
+        {
+            LoginGrid.Visibility = Visibility.Collapsed;
+            EmployeeInfo.Text = $"Logged in as: {_supabase.CurrentEmployee.Name} ({_supabase.CurrentEmployee.Role})";
+
+            // If Admin, show Admin Panel button
+            if (_supabase.CurrentEmployee.Role == "admin")
+            {
+                AdminPanelButton.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                AdminPanelButton.Visibility = Visibility.Collapsed;
+                AdminPanelGrid.Visibility = Visibility.Collapsed;
+            }
+
+            // Show Open Shift dialog
+            _isClosingShift = false;
+            ShiftDialogTitle.Text = "Opening Float";
+            ShiftCashInput.Text = "50.00"; // Mock default
+            ShiftDialogGrid.Visibility = Visibility.Visible;
+
+            // Trigger sync of articles and branding
+            LoadArticles();
+            UpdateBranding();
         }
 
         private async void ShiftConfirmButton_Click(object sender, RoutedEventArgs e)
@@ -79,6 +121,8 @@ namespace CoffeeShopPOS
                 {
                     await _supabase.CloseShiftAsync(cash);
                     MainPosGrid.Visibility = Visibility.Collapsed;
+                    AdminPanelButton.Visibility = Visibility.Collapsed;
+                    AdminPanelGrid.Visibility = Visibility.Collapsed;
                     LoginGrid.Visibility = Visibility.Visible;
                 }
                 else
@@ -89,18 +133,80 @@ namespace CoffeeShopPOS
                 }
                 ShiftDialogGrid.Visibility = Visibility.Collapsed;
             }
+            else
+            {
+                MessageBox.Show("Please enter a valid amount.");
+            }
         }
 
-        private async void LoadArticles()
+        private void LoadArticles()
         {
-            var articles = await _supabase.GetArticlesAsync();
-            ArticleItemsControl.ItemsSource = articles;
+            try
+            {
+                using var db = new LocalDbContext();
+                var activeArticles = db.Articles.Where(a => a.Active).ToList();
+
+                // Group by category for Category Flow Layout
+                var grouped = activeArticles
+                    .GroupBy(a => string.IsNullOrEmpty(a.Category) ? "Uncategorized" : a.Category)
+                    .Select(g => new CategoryGroup
+                    {
+                        CategoryName = g.Key,
+                        Articles = g.ToList()
+                    })
+                    .ToList();
+
+                CategoriesItemsControl.ItemsSource = grouped;
+
+                // Also reload admin margins if panel is open
+                if (AdminPanelGrid.Visibility == Visibility.Visible)
+                {
+                    LoadAdminMargins();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Error loading articles to UI: " + ex.Message);
+            }
+        }
+
+        private void UpdateBranding()
+        {
+            // Apply Dynamic Resource Colors
+            _supabase.ApplyCachedBranding();
+
+            // Load header Logo
+            var localLogoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logo.png");
+            if (File.Exists(localLogoPath))
+            {
+                try
+                {
+                    var bitmap = new BitmapImage();
+                    bitmap.BeginInit();
+                    bitmap.UriSource = new Uri(localLogoPath, UriKind.Absolute);
+                    bitmap.CacheOption = BitmapCacheOption.OnLoad; // Crucial so file is not locked on disk!
+                    bitmap.EndInit();
+                    LogoImage.Source = bitmap;
+                    LogoImage.Visibility = Visibility.Visible;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("Failed to render brand logo: " + ex.Message);
+                }
+            }
+            else
+            {
+                LogoImage.Visibility = Visibility.Collapsed;
+            }
         }
 
         private void ArticleButton_Click(object sender, RoutedEventArgs e)
         {
             var btn = sender as Button;
-            var article = btn.Tag as Article;
+            if (btn == null) return;
+
+            var article = btn.Tag as LocalArticle;
+            if (article == null) return;
 
             var existing = _cart.FirstOrDefault(i => i.ArticleId == article.Id);
             if (existing != null)
@@ -160,10 +266,15 @@ namespace CoffeeShopPOS
             ShiftDialogGrid.Visibility = Visibility.Visible;
         }
 
-        private void LogoutButton_Click(object sender, RoutedEventArgs e)
+        private async void LogoutButton_Click(object sender, RoutedEventArgs e)
         {
+            await _supabase.LogoutAsync();
+
             MainPosGrid.Visibility = Visibility.Collapsed;
+            AdminPanelButton.Visibility = Visibility.Collapsed;
+            AdminPanelGrid.Visibility = Visibility.Collapsed;
             LoginGrid.Visibility = Visibility.Visible;
+            EmployeeInfo.Text = "";
         }
 
         private async void BeansButton_Click(object sender, RoutedEventArgs e)
@@ -171,6 +282,73 @@ namespace CoffeeShopPOS
             await _supabase.StartNewBeanBagAsync();
             MessageBox.Show("New 1kg Bean Bag Started!");
         }
+
+        // Admin panel logic
+        private void AdminPanelButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_supabase.CurrentEmployee?.Role != "admin") return;
+
+            LoadAdminMargins();
+            AdminPanelGrid.Visibility = Visibility.Visible;
+        }
+
+        private void CloseAdminPanel_Click(object sender, RoutedEventArgs e)
+        {
+            AdminPanelGrid.Visibility = Visibility.Collapsed;
+        }
+
+        private void LoadAdminMargins()
+        {
+            try
+            {
+                using var db = new LocalDbContext();
+                var articles = db.Articles.Where(a => a.Active).ToList();
+                var costs = db.ArticleCosts.ToList();
+
+                var marginList = articles.Select(a =>
+                {
+                    var cost = costs.FirstOrDefault(c => c.ArticleId == a.Id)?.UnitCost ?? 0m;
+                    return new AdminArticleMargin
+                    {
+                        Name = a.Name,
+                        Category = a.Category ?? "Uncategorized",
+                        Price = a.Price,
+                        UnitCost = cost
+                    };
+                }).ToList();
+
+                AdminMarginsGrid.ItemsSource = marginList;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Error loading admin margins: " + ex.Message);
+            }
+        }
+
+        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+        {
+            // Insert system closed notification (fire-and-forget)
+            if (_supabase.CurrentEmployee != null)
+            {
+                _supabase.SendSystemClosedNotification(_supabase.CurrentEmployee.Id);
+            }
+            base.OnClosing(e);
+        }
+    }
+
+    public class CategoryGroup
+    {
+        public string CategoryName { get; set; }
+        public List<LocalArticle> Articles { get; set; }
+    }
+
+    public class AdminArticleMargin
+    {
+        public string Name { get; set; }
+        public string Category { get; set; }
+        public decimal Price { get; set; }
+        public decimal UnitCost { get; set; }
+        public decimal Profit => Price - UnitCost;
     }
 
     public class CartItem : System.ComponentModel.INotifyPropertyChanged
