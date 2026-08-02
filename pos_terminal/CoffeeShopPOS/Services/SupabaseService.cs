@@ -17,15 +17,22 @@ namespace CoffeeShopPOS.Services
 {
     public class SupabaseService
     {
-        private static SupabaseService _instance;
+        private static SupabaseService? _instance;
         public static SupabaseService Instance => _instance ??= new SupabaseService();
 
         private Client _client;
         public Client Client => _client;
 
-        private string _supabaseUrl = "YOUR_SUPABASE_URL";
-        private string _supabaseKey = "YOUR_SUPABASE_ANON_KEY";
-        private string _edgeFunctionUrl = "YOUR_SUPABASE_URL/functions/v1/pin-login";
+        private readonly string _supabaseUrl;
+        private readonly string _supabaseKey;
+        private readonly string _edgeFunctionUrl;
+
+        private SupabaseService()
+        {
+            _supabaseUrl = EnvLoader.Get("SUPABASE_URL", "YOUR_SUPABASE_URL");
+            _supabaseKey = EnvLoader.Get("SUPABASE_ANON_KEY", "YOUR_SUPABASE_ANON_KEY");
+            _edgeFunctionUrl = _supabaseUrl.TrimEnd('/') + "/functions/v1/pin-login";
+        }
 
         public Employee CurrentEmployee { get; private set; }
         public Shift CurrentShift { get; private set; }
@@ -133,7 +140,8 @@ namespace CoffeeShopPOS.Services
                             Price = article.Price,
                             Category = article.Category,
                             RequiresCoffee = article.RequiresCoffee,
-                            Active = article.Active
+                            Active = article.Active,
+                            ExpectedYield = article.ExpectedYield
                         });
                     }
                     else
@@ -143,6 +151,7 @@ namespace CoffeeShopPOS.Services
                         existing.Category = article.Category;
                         existing.RequiresCoffee = article.RequiresCoffee;
                         existing.Active = article.Active;
+                        existing.ExpectedYield = article.ExpectedYield;
                     }
                 }
 
@@ -188,7 +197,8 @@ namespace CoffeeShopPOS.Services
                             Price = sa.Price,
                             Category = sa.Category,
                             RequiresCoffee = sa.RequiresCoffee,
-                            Active = sa.Active
+                            Active = sa.Active,
+                            ExpectedYield = sa.ExpectedYield
                         });
                     }
                     else
@@ -198,6 +208,7 @@ namespace CoffeeShopPOS.Services
                         la.Category = sa.Category;
                         la.RequiresCoffee = sa.RequiresCoffee;
                         la.Active = sa.Active;
+                        la.ExpectedYield = sa.ExpectedYield;
                     }
                 }
 

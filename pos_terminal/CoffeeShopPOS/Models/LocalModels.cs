@@ -10,6 +10,7 @@ namespace CoffeeShopPOS.Models
         public string Category { get; set; }
         public bool RequiresCoffee { get; set; }
         public bool Active { get; set; }
+        public int? ExpectedYield { get; set; }
     }
 
     public class LocalArticleCost
