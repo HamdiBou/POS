@@ -62,6 +62,9 @@ namespace CoffeeShopPOS.Models
 
         [Column("active")]
         public bool Active { get; set; }
+
+        [Column("expected_yield")]
+        public int? ExpectedYield { get; set; }
     }
 
     [Table("orders")]
