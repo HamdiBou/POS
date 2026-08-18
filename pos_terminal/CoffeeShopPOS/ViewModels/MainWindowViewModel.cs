@@ -87,6 +87,21 @@ namespace CoffeeShopPOS.ViewModels
             set => SetProperty(ref _shiftDialogGridVisibility, value);
         }
 
+        private bool _showNonSellableArticles;
+        public bool ShowNonSellableArticles
+        {
+            get => _showNonSellableArticles;
+            set
+            {
+                if (SetProperty(ref _showNonSellableArticles, value))
+                {
+                    LoadArticles();
+                }
+            }
+        }
+
+        public string ArticleViewButtonText => ShowNonSellableArticles ? "Afficher les articles vendables" : "Afficher les matières premières";
+
         // Commands
         public ICommand PinKeyCommand { get; }
         public ICommand PinClearCommand { get; }
@@ -100,6 +115,7 @@ namespace CoffeeShopPOS.ViewModels
         public ICommand BeansButtonCommand { get; }
         public ICommand AdminPanelCommand { get; }
         public ICommand CloseAdminPanelCommand { get; }
+        public ICommand ToggleArticleViewCommand { get; }
 
         public MainWindowViewModel()
         {
@@ -116,6 +132,7 @@ namespace CoffeeShopPOS.ViewModels
             BeansButtonCommand = new RelayCommand(async (_) => await ExecuteBeansButtonAsync());
             AdminPanelCommand = new RelayCommand(ExecuteAdminPanel);
             CloseAdminPanelCommand = new RelayCommand(ExecuteCloseAdminPanel);
+            ToggleArticleViewCommand = new RelayCommand(ExecuteToggleArticleView);
 
             // Hook Event Listeners
             _supabase.OnArticlesChanged += HandleArticlesChanged;
@@ -185,11 +202,12 @@ namespace CoffeeShopPOS.ViewModels
             if (success)
             {
                 PinInputProvider.ClearPin();
+                await _supabase.SyncArticlesInitialAsync();
                 OnLoginSuccess();
             }
             else
             {
-                MessageBox.Show("Invalid PIN");
+                MessageBox.Show("Code PIN invalide");
                 PinInputProvider.ClearPin();
             }
         }
@@ -197,7 +215,7 @@ namespace CoffeeShopPOS.ViewModels
         private void OnLoginSuccess()
         {
             LoginGridVisibility = Visibility.Collapsed;
-            EmployeeInfoText = $"Logged in as: {_supabase.CurrentEmployee.Name} ({_supabase.CurrentEmployee.Role})";
+            EmployeeInfoText = $"Connecté en tant que : {_supabase.CurrentEmployee.Name} ({_supabase.CurrentEmployee.Role})";
 
             if (_supabase.CurrentEmployee.Role == "admin")
             {
@@ -221,6 +239,11 @@ namespace CoffeeShopPOS.ViewModels
         {
             if (parameter is LocalArticle article)
             {
+                if (!article.IsSellable)
+                {
+                    return;
+                }
+
                 var existing = Cart.FirstOrDefault(i => i.ArticleId == article.Id);
                 if (existing != null)
                 {
@@ -264,7 +287,7 @@ namespace CoffeeShopPOS.ViewModels
 
             Cart.Clear();
             UpdateTotal();
-            MessageBox.Show("Order Completed!");
+            MessageBox.Show("Commande enregistrée !");
         }
 
         private void ExecuteCloseShift(object? parameter)
@@ -297,7 +320,7 @@ namespace CoffeeShopPOS.ViewModels
             }
             else
             {
-                MessageBox.Show("Please enter a valid amount.");
+                MessageBox.Show("Veuillez saisir un montant valide.");
             }
         }
 
@@ -315,7 +338,7 @@ namespace CoffeeShopPOS.ViewModels
         private async Task ExecuteBeansButtonAsync()
         {
             await _supabase.StartNewBeanBagAsync();
-            MessageBox.Show("New 1kg Bean Bag Started!");
+            MessageBox.Show("Nouveau sac de 1 kg de grains démarré !");
         }
 
         private void ExecuteAdminPanel(object? parameter)
@@ -331,13 +354,21 @@ namespace CoffeeShopPOS.ViewModels
             AdminPanelGridVisibility = Visibility.Collapsed;
         }
 
+        private void ExecuteToggleArticleView(object? parameter)
+        {
+            ShowNonSellableArticles = !ShowNonSellableArticles;
+            OnPropertyChanged(nameof(ArticleViewButtonText));
+        }
+
         // Logic Helpers
         public void LoadArticles()
         {
             try
             {
                 using var db = new LocalDbContext();
-                var activeArticles = db.Articles.Where(a => a.Active).ToList();
+                var activeArticles = db.Articles
+                    .Where(a => a.Active && (ShowNonSellableArticles ? !a.IsSellable : a.IsSellable))
+                    .ToList();
 
                 // Group by category for Category Flow Layout
                 var grouped = activeArticles

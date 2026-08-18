@@ -30,6 +30,8 @@ namespace CoffeeShopPOS
                 _supabase.OnBrandingChanged += () => Dispatcher.Invoke(UpdateBranding);
 
                 await _supabase.InitializeAsync();
+                await _supabase.SyncArticlesInitialAsync();
+                _viewModel.LoadArticles();
 
                 _supabase.OnOrderReceived += (order) =>
                 {

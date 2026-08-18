@@ -11,6 +11,7 @@ namespace CoffeeShopPOS.Models
         public bool RequiresCoffee { get; set; }
         public bool Active { get; set; }
         public int? ExpectedYield { get; set; }
+        public bool IsSellable { get; set; } = true;
     }
 
     public class LocalArticleCost

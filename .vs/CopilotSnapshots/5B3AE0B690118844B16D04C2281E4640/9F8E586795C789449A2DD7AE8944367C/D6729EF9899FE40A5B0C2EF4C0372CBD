@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
@@ -26,14 +25,12 @@ namespace CoffeeShopPOS.Services
 
         private readonly string _supabaseUrl;
         private readonly string _supabaseKey;
-        private readonly string _serviceRoleKey;
         private readonly string _edgeFunctionUrl;
 
         private SupabaseService()
         {
             _supabaseUrl = EnvLoader.Get("SUPABASE_URL", "YOUR_SUPABASE_URL");
             _supabaseKey = EnvLoader.Get("SUPABASE_ANON_KEY", "YOUR_SUPABASE_ANON_KEY");
-            _serviceRoleKey = EnvLoader.Get("SUPABASE_SERVICE_ROLE_KEY", string.Empty);
             _edgeFunctionUrl = _supabaseUrl.TrimEnd('/') + "/functions/v1/pin-login";
         }
 
@@ -47,9 +44,6 @@ namespace CoffeeShopPOS.Services
 
         private Timer _pollTimer;
         private bool _isSyncing = false;
-        private bool _isArticlesSyncing = false;
-        private bool _hasInitialArticlesSyncCompleted = false;
-        private DateTime _lastArticlesSyncUtc = DateTime.MinValue;
 
         public async Task InitializeAsync()
         {
@@ -74,9 +68,12 @@ namespace CoffeeShopPOS.Services
             // Start background polling (every 15 seconds)
             StartPolling();
 
-            await SyncArticlesInitialAsync();
-            await SyncDataAsync();
-            await SyncBrandingAsync();
+            // Run offline sync and initial branding fetch in background
+            _ = Task.Run(async () =>
+            {
+                await SyncDataAsync();
+                await SyncBrandingAsync();
+            });
         }
 
         private async Task SetupRealtimeAsync()
@@ -171,143 +168,79 @@ namespace CoffeeShopPOS.Services
         {
             _pollTimer = new Timer(async _ =>
             {
-                try
-                {
-                    await PollProductChangesAsync();
-                    await SyncCostsIfAdminAsync();
-                    await SyncDataAsync();
-                    await SyncBrandingAsync();
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine("Polling loop failed: " + ex.Message);
-                }
+                await PollProductChangesAsync();
+                await SyncCostsIfAdminAsync();
+                await SyncDataAsync();
+                await SyncBrandingAsync();
             }, null, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15));
-        }
-
-        public async Task SyncArticlesInitialAsync()
-        {
-            if (_hasInitialArticlesSyncCompleted && _lastArticlesSyncUtc != DateTime.MinValue)
-            {
-                return;
-            }
-
-            await SyncArticlesFromSupabaseAsync(forceRefresh: true);
-            _hasInitialArticlesSyncCompleted = true;
         }
 
         public async Task PollProductChangesAsync()
         {
-            if (_lastArticlesSyncUtc != DateTime.MinValue && DateTime.UtcNow - _lastArticlesSyncUtc < TimeSpan.FromSeconds(15))
-            {
-                return;
-            }
-
-            await SyncArticlesFromSupabaseAsync(forceRefresh: true);
-        }
-
-        private async Task SyncArticlesFromSupabaseAsync(bool forceRefresh)
-        {
-            if (!forceRefresh && _lastArticlesSyncUtc != DateTime.MinValue && DateTime.UtcNow - _lastArticlesSyncUtc < TimeSpan.FromSeconds(15))
-            {
-                return;
-            }
-
-            if (_isArticlesSyncing) return;
-
-            _isArticlesSyncing = true;
             try
             {
                 var supabaseArticles = await GetArticlesFromSupabaseAsync();
+                if (supabaseArticles == null || supabaseArticles.Count == 0) return;
 
                 using var db = new LocalDbContext();
                 var localArticles = await db.Articles.ToListAsync();
 
-                if (supabaseArticles != null)
+                foreach (var sa in supabaseArticles)
                 {
-                    foreach (var sa in supabaseArticles)
+                    var la = localArticles.FirstOrDefault(x => x.Id == sa.Id);
+                    if (la == null)
                     {
-                        var la = localArticles.FirstOrDefault(x => x.Id == sa.Id);
-                        if (la == null)
+                        db.Articles.Add(new LocalArticle
                         {
-                            db.Articles.Add(new LocalArticle
-                            {
-                                Id = sa.Id,
-                                Name = sa.Name,
-                                Price = sa.Price,
-                                Category = sa.Category,
-                                RequiresCoffee = sa.RequiresCoffee,
-                                Active = sa.Active,
-                                ExpectedYield = sa.ExpectedYield,
-                                IsSellable = sa.IsSellable
-                            });
-                        }
-                        else
-                        {
-                            la.Name = sa.Name;
-                            la.Price = sa.Price;
-                            la.Category = sa.Category;
-                            la.RequiresCoffee = sa.RequiresCoffee;
-                            la.Active = sa.Active;
-                            la.ExpectedYield = sa.ExpectedYield;
-                            la.IsSellable = sa.IsSellable;
-                        }
+                            Id = sa.Id,
+                            Name = sa.Name,
+                            Price = sa.Price,
+                            Category = sa.Category,
+                            RequiresCoffee = sa.RequiresCoffee,
+                            Active = sa.Active,
+                            ExpectedYield = sa.ExpectedYield
+                        });
                     }
-
-                    var fetchedIds = supabaseArticles.Select(sa => sa.Id).ToHashSet();
-                    foreach (var la in localArticles)
+                    else
                     {
-                        if (!fetchedIds.Contains(la.Id) && la.Active)
-                        {
-                            la.Active = false;
-                        }
+                        la.Name = sa.Name;
+                        la.Price = sa.Price;
+                        la.Category = sa.Category;
+                        la.RequiresCoffee = sa.RequiresCoffee;
+                        la.Active = sa.Active;
+                        la.ExpectedYield = sa.ExpectedYield;
+                    }
+                }
+
+                // If local article is active but not returned by Supabase, mark it inactive
+                var fetchedIds = supabaseArticles.Select(sa => sa.Id).ToHashSet();
+                foreach (var la in localArticles)
+                {
+                    if (!fetchedIds.Contains(la.Id) && la.Active)
+                    {
+                        la.Active = false;
                     }
                 }
 
                 await db.SaveChangesAsync();
-                _lastArticlesSyncUtc = DateTime.UtcNow;
                 OnArticlesChanged?.Invoke();
             }
             catch (Exception ex)
             {
-                Console.WriteLine("Sync articles failed: " + ex.Message);
-                _lastArticlesSyncUtc = DateTime.UtcNow;
-            }
-            finally
-            {
-                _isArticlesSyncing = false;
+                Console.WriteLine("Polling products failed: " + ex.Message);
             }
         }
 
-        public async Task<List<Article>?> GetArticlesFromSupabaseAsync()
+        public async Task<List<Article>> GetArticlesFromSupabaseAsync()
         {
             try
             {
-                if (!string.IsNullOrWhiteSpace(_serviceRoleKey))
-                {
-                    using var httpClient = new HttpClient();
-                    httpClient.DefaultRequestHeaders.Add("apikey", _serviceRoleKey);
-                    httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _serviceRoleKey);
-
-                    var url = $"{_supabaseUrl.TrimEnd('/')}/rest/v1/articles?select=id,name,price,category,requires_coffee,active,expected_yield";
-                    var response = await httpClient.GetAsync(url);
-                    if (response.IsSuccessStatusCode)
-                    {
-                        var content = await response.Content.ReadAsStringAsync();
-                        var articles = JsonConvert.DeserializeObject<List<Article>>(content);
-                        return articles ?? new List<Article>();
-                    }
-
-                    Console.WriteLine($"Service role article query failed: {(int)response.StatusCode} {response.ReasonPhrase}");
-                }
-
-                var supabaseResponse = await _client.From<Article>().Where(x => x.Active).Get();
-                return supabaseResponse.Models;
+                var response = await _client.From<Article>().Where(x => x.Active).Get();
+                return response.Models;
             }
-            catch (Exception ex)
+            catch
             {
-                Console.WriteLine("Failed to fetch articles from Supabase: " + ex.Message);
-                return null;
+                return new List<Article>();
             }
         }
 
@@ -328,16 +261,11 @@ namespace CoffeeShopPOS.Services
         public async Task<bool> LoginWithPinAsync(string pin)
         {
             using var httpClient = new HttpClient();
-
-            // Add Authorization header for Edge Function
-            httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_supabaseKey}");
-
             var content = new StringContent(JsonConvert.SerializeObject(new { pin }), Encoding.UTF8, "application/json");
 
             try
             {
                 Console.WriteLine($"LoginWithPinAsync: Sending PIN to {_edgeFunctionUrl}");
-                Console.WriteLine($"LoginWithPinAsync: PIN value: {pin}");
                 var response = await httpClient.PostAsync(_edgeFunctionUrl, content);
                 Console.WriteLine($"LoginWithPinAsync: Response Status: {response.StatusCode}");
 

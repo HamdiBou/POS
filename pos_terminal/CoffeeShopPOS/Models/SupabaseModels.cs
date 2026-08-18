@@ -65,6 +65,9 @@ namespace CoffeeShopPOS.Models
 
         [Column("expected_yield")]
         public int? ExpectedYield { get; set; }
+
+        [Column("is_sellable")]
+        public bool IsSellable { get; set; } = true;
     }
 
     [Table("orders")]

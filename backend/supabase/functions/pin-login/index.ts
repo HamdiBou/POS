@@ -24,8 +24,8 @@ serve(async (req) => {
     }
 
     const supabaseAdmin = createClient(
-      Deno.env.get('https://duhnkveauqidardqwobs.supabase.co/rest/v1/') ?? '',
-      Deno.env.get('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR1aG5rdmVhdXFpZGFyZHF3b2JzIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MzY2NjU4NSwiZXhwIjoyMDk5MjQyNTg1fQ.VOYVfzgE9DZfeEhTgk-RL7TilxMGKyaabl5kF136lzg') ?? ''
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? Deno.env.get('SUPABASE_ANON_KEY') ?? ''
     )
 
     const { data: employees, error } = await supabaseAdmin

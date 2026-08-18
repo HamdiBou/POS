@@ -1,10 +1,10 @@
-<Window x:Class="CoffeeShopPOS.MainWindow"
+﻿<Window x:Class="CoffeeShopPOS.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        Title="Café POS" Height="768" Width="1024" WindowStyle="None" WindowState="Maximized">
+        Title="Coffee Shop POS" Height="768" Width="1024" WindowStyle="None" WindowState="Maximized">
     <Grid Background="#F5F5F5">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -16,13 +16,13 @@
             <Grid HorizontalAlignment="Stretch">
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
                     <Image x:Name="LogoImage" Height="40" Margin="0,0,20,0" VerticalAlignment="Center" Visibility="Collapsed"/>
-                    <TextBlock Text="CAFÉ POS" Foreground="White" FontSize="24" FontWeight="Bold" VerticalAlignment="Center"/>
+                    <TextBlock Text="COFFEE SHOP POS" Foreground="White" FontSize="24" FontWeight="Bold" VerticalAlignment="Center"/>
                     <Separator Width="20" Visibility="Hidden"/>
                     <TextBlock Text="{Binding EmployeeInfoText}" Foreground="White" FontSize="18" VerticalAlignment="Center"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button Content="Panneau admin" Command="{Binding AdminPanelCommand}" Visibility="{Binding AdminPanelButtonVisibility}" Margin="0,0,10,0" Padding="15,5" FontSize="16" FontWeight="SemiBold"/>
-                    <Button Content="Déconnexion" Command="{Binding LogoutCommand}" HorizontalAlignment="Right" Padding="15,5" FontSize="16" FontWeight="SemiBold"/>
+                    <Button Content="Admin Panel" Command="{Binding AdminPanelCommand}" Visibility="{Binding AdminPanelButtonVisibility}" Margin="0,0,10,0" Padding="15,5" FontSize="16" FontWeight="SemiBold"/>
+                    <Button Content="Logout" Command="{Binding LogoutCommand}" HorizontalAlignment="Right" Padding="15,5" FontSize="16" FontWeight="SemiBold"/>
                 </StackPanel>
             </Grid>
         </Border>
@@ -33,7 +33,7 @@
             <Grid Background="#AA000000" Panel.ZIndex="100" Visibility="{Binding LoginGridVisibility}">
                 <Border Background="White" Width="400" Height="500" CornerRadius="10" VerticalAlignment="Center" HorizontalAlignment="Center">
                     <StackPanel Margin="40">
-                        <TextBlock Text="Entrez le code PIN" FontSize="32" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,30"/>
+                        <TextBlock Text="Enter PIN" FontSize="32" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,30"/>
                         <PasswordBox x:Name="PinInput" FontSize="48" HorizontalContentAlignment="Center" Margin="0,0,0,20"/>
                         <UniformGrid Columns="3" Rows="4">
                             <Button Content="1" Style="{StaticResource PinButtonStyle}" Command="{Binding PinKeyCommand}" CommandParameter="1"/>
@@ -45,7 +45,7 @@
                             <Button Content="7" Style="{StaticResource PinButtonStyle}" Command="{Binding PinKeyCommand}" CommandParameter="7"/>
                             <Button Content="8" Style="{StaticResource PinButtonStyle}" Command="{Binding PinKeyCommand}" CommandParameter="8"/>
                             <Button Content="9" Style="{StaticResource PinButtonStyle}" Command="{Binding PinKeyCommand}" CommandParameter="9"/>
-                            <Button Content="Effacer" Style="{StaticResource PinButtonStyle}" Command="{Binding PinClearCommand}"/>
+                            <Button Content="Clear" Style="{StaticResource PinButtonStyle}" Command="{Binding PinClearCommand}"/>
                             <Button Content="0" Style="{StaticResource PinButtonStyle}" Command="{Binding PinKeyCommand}" CommandParameter="0"/>
                             <Button Content="OK" Style="{StaticResource PinButtonStyle}" Command="{Binding PinOkCommand}" Background="#4CAF50" Foreground="White"/>
                         </UniformGrid>
@@ -61,17 +61,17 @@
                 </Grid.RowDefinitions>
                 <Border Background="#EEE" Padding="20,10">
                     <Grid>
-                        <TextBlock Text="PANNEAU ADMIN - MARGES DES ARTICLES" FontSize="24" FontWeight="Bold" Foreground="#3E2723" VerticalAlignment="Center"/>
-                        <Button Content="Retour au POS" Command="{Binding CloseAdminPanelCommand}" HorizontalAlignment="Right" Padding="15,5" FontSize="16" Style="{StaticResource POSButtonStyle}"/>
+                        <TextBlock Text="ADMIN PANEL - ARTICLE MARGINS" FontSize="24" FontWeight="Bold" Foreground="#3E2723" VerticalAlignment="Center"/>
+                        <Button Content="Back to POS" Command="{Binding CloseAdminPanelCommand}" HorizontalAlignment="Right" Padding="15,5" FontSize="16" Style="{StaticResource POSButtonStyle}"/>
                     </Grid>
                 </Border>
                 <DataGrid Grid.Row="1" ItemsSource="{Binding AdminMargins}" AutoGenerateColumns="False" IsReadOnly="True" Margin="20" FontSize="16" AlternatingRowBackground="#FFF" Background="White" RowHeaderWidth="0">
                     <DataGrid.Columns>
-                        <DataGridTextColumn Header="Nom de l'article" Binding="{Binding Name}" Width="*"/>
-                        <DataGridTextColumn Header="Catégorie" Binding="{Binding Category}" Width="200"/>
-                        <DataGridTextColumn Header="Prix" Binding="{Binding Price, StringFormat={}{0:C}}" Width="150"/>
-                        <DataGridTextColumn Header="Coût unitaire" Binding="{Binding UnitCost, StringFormat={}{0:C}}" Width="150"/>
-                        <DataGridTextColumn Header="Marge" Binding="{Binding Profit, StringFormat={}{0:C}}" Width="180"/>
+                        <DataGridTextColumn Header="Article Name" Binding="{Binding Name}" Width="*"/>
+                        <DataGridTextColumn Header="Category" Binding="{Binding Category}" Width="200"/>
+                        <DataGridTextColumn Header="Price" Binding="{Binding Price, StringFormat={}{0:C}}" Width="150"/>
+                        <DataGridTextColumn Header="Unit Cost" Binding="{Binding UnitCost, StringFormat={}{0:C}}" Width="150"/>
+                        <DataGridTextColumn Header="Profit Margin" Binding="{Binding Profit, StringFormat={}{0:C}}" Width="180"/>
                     </DataGrid.Columns>
                 </DataGrid>
             </Grid>
@@ -91,8 +91,7 @@
                     </Grid.RowDefinitions>
 
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                         <Button Content="1 kg de grains" Command="{Binding BeansButtonCommand}" Padding="20,12" Background="{DynamicResource AccentBrush}" Foreground="White" FontSize="16" FontWeight="SemiBold"/>
-                         <Button Content="{Binding ArticleViewButtonText}" Command="{Binding ToggleArticleViewCommand}" Margin="10,0,0,0" Padding="20,12" Background="#795548" Foreground="White" FontSize="16" FontWeight="SemiBold"/>
+                         <Button Content="1kg Beans" Command="{Binding BeansButtonCommand}" Padding="20,12" Background="{DynamicResource AccentBrush}" Foreground="White" FontSize="16" FontWeight="SemiBold"/>
                     </StackPanel>
 
                     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
@@ -114,7 +113,6 @@
                                                     <Button Margin="5" Width="180" Height="100" Background="White"
                                                             Command="{Binding DataContext.AddArticleToCartCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                             CommandParameter="{Binding}"
-                                                            IsEnabled="{Binding IsSellable}"
                                                             Style="{StaticResource POSButtonStyle}">
                                                         <Grid Margin="5">
                                                             <Grid.RowDefinitions>
@@ -145,7 +143,7 @@
                             <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
-                        <TextBlock Text="Commande" FontSize="24" FontWeight="Bold" Margin="0,0,0,10"/>
+                        <TextBlock Text="Order" FontSize="24" FontWeight="Bold" Margin="0,0,0,10"/>
 
                         <ListBox Grid.Row="1" ItemsSource="{Binding Cart}" BorderThickness="0">
                             <ListBox.ItemTemplate>
@@ -173,9 +171,9 @@
                         </StackPanel>
 
                         <UniformGrid Grid.Row="3" Columns="2" Rows="2" Height="120">
-                            <Button Content="Vider le panier" Command="{Binding ClearCartCommand}" Margin="5" Style="{StaticResource POSButtonStyle}"/>
-                            <Button Content="Fermer le shift" Command="{Binding CloseShiftCommand}" Margin="5" Style="{StaticResource POSButtonStyle}"/>
-                            <Button Grid.ColumnSpan="2" Content="PAYER" Command="{Binding PayCommand}" Margin="5" FontSize="24" Background="#4CAF50" Foreground="White" Style="{StaticResource POSButtonStyle}"/>
+                            <Button Content="Clear Cart" Command="{Binding ClearCartCommand}" Margin="5" Style="{StaticResource POSButtonStyle}"/>
+                            <Button Content="Close Shift" Command="{Binding CloseShiftCommand}" Margin="5" Style="{StaticResource POSButtonStyle}"/>
+                            <Button Grid.ColumnSpan="2" Content="PAY" Command="{Binding PayCommand}" Margin="5" FontSize="24" Background="#4CAF50" Foreground="White" Style="{StaticResource POSButtonStyle}"/>
                         </UniformGrid>
                     </Grid>
                 </Border>
@@ -187,7 +185,7 @@
                     <StackPanel Margin="40">
                         <TextBlock Text="{Binding ShiftDialogTitle}" FontSize="24" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,20"/>
                         <TextBox Text="{Binding ShiftCashInput, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" FontSize="32" HorizontalContentAlignment="Center" Margin="0,0,0,30"/>
-                        <Button Content="Confirmer" Command="{Binding ShiftConfirmCommand}" Padding="15" FontSize="20" Background="#4CAF50" Foreground="White" Style="{StaticResource POSButtonStyle}"/>
+                        <Button Content="Confirm" Command="{Binding ShiftConfirmCommand}" Padding="15" FontSize="20" Background="#4CAF50" Foreground="White" Style="{StaticResource POSButtonStyle}"/>
                     </StackPanel>
                 </Border>
             </Grid>

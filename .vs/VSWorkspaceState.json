@@ -1,0 +1,12 @@
+{
+  "ExpandedNodes": [
+    "",
+    "\\pos_terminal",
+    "\\pos_terminal\\CoffeeShopPOS",
+    "\\pos_terminal\\CoffeeShopPOS\\Data",
+    "\\pos_terminal\\CoffeeShopPOS\\Models",
+    "\\pos_terminal\\CoffeeShopPOS\\Services",
+    "\\pos_terminal\\CoffeeShopPOS\\Themes"
+  ],
+  "PreviewInSolutionExplorer": false
+}
